@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mango BLE Pad</title>
+<style>
+  :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
+  body { margin: 0; background: #0f172a; color: #e2e8f0; display: grid; place-items: center; min-height: 100vh; }
+  .app { width: min(520px, 92vw); padding: 20px; border-radius: 16px; background: #111827; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  h1 { margin: 0 0 8px; font-size: 24px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  button { flex: 1; padding: 14px 16px; border-radius: 12px; border: 0; cursor: pointer; font-size: 16px; color: #0f172a; }
+  .primary { background: #60a5fa; }
+  .ghost { background: #94a3b8; }
+  .danger { background: #fca5a5; }
+  .ok { background: #86efac; }
+  .blue { background: #93c5fd; }
+  .pad { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .pad button { background: #e5e7eb; }
+  .log { margin-top: 16px; height: 180px; overflow:auto; background:#0b1220; border-radius:10px; padding:10px; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .muted { color:#94a3b8; font-size:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>🍋 Mango BLE Pad</h1>
+    <div class="row">
+      <button id="btnConnect" class="primary">連線</button>
+      <button id="btnDisconnect" class="ghost">中斷</button>
+      <button id="btnBlue" class="blue">BLUE</button>
+      <button id="btnStop" class="danger">STOP</button>
+    </div>
+
+    <div class="pad">
+      <div></div>
+      <button data-cmd="UP">UP ⬆</button>
+      <div></div>
+      <button data-cmd="LEFT">LEFT ⬅</button>
+      <div></div>
+      <button data-cmd="RIGHT">RIGHT ➡</button>
+      <div></div>
+      <button data-cmd="DOWN">DOWN ⬇</button>
+      <div></div>
+    </div>
+
+    <div class="muted" id="status">尚未連線</div>
+    <div class="log" id="log"></div>
+    <div class="muted">提示：若無法連線，請用 Android/Chrome 測試，或確認此頁透過 HTTPS 服務。</div>
+  </div>
+
+<script>
+(() => {
+  // ====== 依你的模組調整（需要可加/改 UUID） ======
+  const UART_PROFILES = [
+    // HM-10 / 常見 BLE UART
+    { service: '0000ffe0-0000-1000-8000-00805f9b34fb', tx: null, rx: '0000ffe1-0000-1000-8000-00805f9b34fb' },
+    // Nordic NUS
+    { service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e', tx: '6e400003-b5a3-f393-e0a9-e50e24dcca9e', rx: '6e400002-b5a3-f393-e0a9-e50e24dcca9e' }
+  ];
+  // 你可以把 namePrefix 改成 "doi" 或完整名稱 "doiot-BLE"
+  const NAME_PREFIX = ''; // 留空＝不篩選名稱；或設 "doi"
+
+  // ========= 狀態 =========
+  let device = null, server = null, writerChar = null, notifyChar = null;
+
+  const $ = s => document.querySelector(s);
+  const log = (m) => { const el = $('#log'); el.innerText += m + '\n'; el.scrollTop = el.scrollHeight; }
+  const setStatus = (s) => $('#status').innerText = s;
+
+  async function connect() {
+    try {
+      if (!navigator.bluetooth) {
+        alert('此瀏覽器不支援 Web Bluetooth。請使用 Chrome (Android) 或新版 iOS Safari。');
+        return;
+      }
+      setStatus('掃描裝置中…');
+
+      // 先把所有可能的 service 都丟進 optionalServices
+      const optional = UART_PROFILES.map(p => p.service);
+      const filters = NAME_PREFIX ? [{ namePrefix: NAME_PREFIX }] : undefined;
+
+      device = await navigator.bluetooth.requestDevice({
+        filters, optionalServices: optional, acceptAllDevices: !filters
+      });
+      setStatus(`連線 ${device.name || '(未命名)'}…`);
+      log(`🔗 選取：${device.name} (${device.id})`);
+
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      server = await device.gatt.connect();
+
+      // 嘗試每個 profile，直到找到可寫入的 characteristic
+      for (const prof of UART_PROFILES) {
+        try {
+          const svc = await server.getPrimaryService(prof.service);
+          let rxCharUUID = prof.rx; // phone -> peripheral (write)
+          let txCharUUID = prof.tx; // peripheral -> phone (notify/indicate)
+          // 有些模組只暴露一個 FFE1（同時支援 write/notify）
+          // 所以我們也嘗試在 service 裡遍歷找最合適的特徵
+          const chars = await svc.getCharacteristics();
+
+          // 找 writeable 的特徵當 writer
+          writerChar = null; notifyChar = null;
+          for (const c of chars) {
+            const props = c.properties;
+            if (!writerChar && (props.write || props.writeWithoutResponse)) writerChar = c;
+            if (!notifyChar && (props.notify || props.indicate)) notifyChar = c;
+          }
+          // 若指定 UUID 存在，優先用指定的
+          if (rxCharUUID) writerChar = await svc.getCharacteristic(rxCharUUID);
+          if (txCharUUID) notifyChar = await svc.getCharacteristic(txCharUUID);
+
+          if (writerChar) {
+            setStatus('已連線（找到可寫入的特徵）');
+            log(`✅ 服務：${prof.service}`);
+            log(`✍️  Write Char：${writerChar.uuid}`);
+            if (notifyChar) {
+              await notifyChar.startNotifications();
+              notifyChar.addEventListener('characteristicvaluechanged', evt => {
+                const v = evt.target.value;
+                let txt = '';
+                try { txt = new TextDecoder().decode(v); } catch {}
+                log(`← ${toHex(v)}  ${txt ? `「${txt.trim()}」` : ''}`);
+              });
+              log(`🔔 Notify Char：${notifyChar.uuid}（已啟用）`);
+            } else {
+              log('ℹ️ 此服務未啟用通知（不影響送指令）。');
+            }
+            return; // 成功就結束
+          }
+        } catch (e) {
+          // 換下一個 profile
+        }
+      }
+
+      throw new Error('未發現可寫入的 UART 特徵，請確認模組的 Service/Characteristic UUID。');
+
+    } catch (err) {
+      console.error(err);
+      setStatus('連線失敗');
+      log('❌ ' + err.message);
+      await disconnect();
+    }
+  }
+
+  function onDisconnected() {
+    setStatus('已斷線');
+    log('🔌 已斷線');
+    device = server = writerChar = notifyChar = null;
+  }
+
+  async function disconnect() {
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch {}
+    onDisconnected();
+  }
+
+  async function send(text) {
+    if (!writerChar) { log('⚠️ 尚未連線'); return; }
+    const data = new TextEncoder().encode(text + '\n'); // 你的 Pico 用 .strip() 會去掉 \n
+    try {
+      const props = writerChar.properties;
+      if (props.writeWithoutResponse) {
+        await writerChar.writeValueWithoutResponse(data);
+      } else {
+        await writerChar.writeValue(data);
+      }
+      log(`→ ${text}`);
+    } catch (e) {
+      log('❌ 傳送失敗：' + e.message);
+    }
+  }
+
+  function toHex(dv) {
+    const a = [];
+    for (let i = 0; i < dv.byteLength; i++) {
+      a.push( ('0' + dv.getUint8(i).toString(16)).slice(-2).toUpperCase() );
+    }
+    return a.join(' ');
+  }
+
+  // 綁定 UI
+  $('#btnConnect').addEventListener('click', connect);
+  $('#btnDisconnect').addEventListener('click', disconnect);
+  $('#btnBlue').addEventListener('click', () => send('BLUE'));
+  $('#btnStop').addEventListener('click', () => send('STOP'));
+  document.querySelectorAll('[data-cmd]').forEach(b => {
+    b.addEventListener('click', () => send(b.dataset.cmd));
+  });
+})();
+</script>
+</body>
+</html>
