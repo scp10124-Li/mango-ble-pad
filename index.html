@@ -3,65 +3,31 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BLE 最簡連線測試（含紅色斷線提示）</title>
+<title>BLE 最簡連線＋自動送 up</title>
 <style>
-  :root {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial;
-  }
-  body {
-    margin: 0;
-    background: #0f172a;
-    color: #e2e8f0;
-    display: grid;
-    place-items: center;
-    min-height: 100vh;
-  }
-  .app {
-    width: min(520px, 92vw);
-    padding: 20px;
-    border-radius: 16px;
-    background: #111827;
-    box-shadow: 0 10px 30px rgba(0,0,0,.35);
-  }
+  :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
+  body { margin: 0; background: #0f172a; color: #e2e8f0; display: grid; place-items: center; min-height: 100vh; }
+  .app { width: min(520px, 92vw); padding: 20px; border-radius: 16px; background: #111827; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
   h1 { margin: 0 0 8px; font-size: 22px; }
   .row { display: flex; gap: 12px; }
   button {
-    flex: 1;
-    padding: 12px 14px;
-    border-radius: 12px;
-    border: 0;
-    cursor: pointer;
-    font-size: 16px;
-    color: #0f172a;
+    flex: 1; padding: 12px 14px; border-radius: 12px; border: 0;
+    cursor: pointer; font-size: 16px; color: #0f172a;
   }
   .primary { background: #60a5fa; }
   .ghost { background: #cbd5e1; }
 
   .status {
-    color: #94a3b8;
-    font-size: 14px;
-    text-align: center;
-    margin-top: 10px;
-    padding: 10px;
-    border-radius: 8px;
+    color: #94a3b8; font-size: 14px; text-align: center;
+    margin-top: 10px; padding: 10px; border-radius: 8px;
     transition: background-color 0.3s, color 0.3s;
   }
-  .status.connected {
-    background-color: #166534;
-    color: #dcfce7;
-  }
-  .status.disconnected {
-    background-color: #b91c1c;
-    color: #fff;
-  }
+  .status.connected { background-color: #166534; color: #dcfce7; }
+  .status.disconnected { background-color: #b91c1c; color: #fff; }
 
   .log {
-    margin-top: 12px;
-    height: 200px;
-    overflow:auto;
-    background:#0b1220;
-    border-radius:10px;
-    padding:10px;
+    margin-top: 12px; height: 200px; overflow:auto;
+    background:#0b1220; border-radius:10px; padding:10px;
     font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     white-space: pre-wrap;
   }
@@ -69,61 +35,80 @@
 </head>
 <body>
   <div class="app">
-    <h1>🔗 BLE 最簡版連線測試</h1>
+    <h1>🔗 BLE 連線測試＋自動送 up</h1>
     <div class="row">
       <button id="btnConnect" class="primary">連線</button>
       <button id="btnDisconnect" class="ghost" disabled>斷線</button>
     </div>
-
     <div id="status" class="status">尚未連線</div>
     <div id="log" class="log"></div>
   </div>
 
 <script>
 (() => {
-  let device = null, server = null;
+  const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
+  const CHAR_UUID    = '0000fff3-0000-1000-8000-00805f9b34fb';
+
+  let device = null, server = null, writerChar = null;
+
   const $ = s => document.querySelector(s);
-  const log = m => {
-    const el = $('#log');
-    el.textContent += m + '\n';
-    el.scrollTop = el.scrollHeight;
-  };
-  const setStatus = (text, state = '') => {
-    const el = $('#status');
-    el.innerText = text;
-    el.className = 'status ' + state;
-  };
+  const log = m => { const el = $('#log'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
+  const setStatus = (text, state='') => { const el=$('#status'); el.innerText=text; el.className='status '+state; };
 
   async function connect() {
     try {
       if (!('bluetooth' in navigator)) {
-        alert('此瀏覽器不支援 Web Bluetooth。請用 Bluefy 或 Android Chrome 開啟。');
+        alert('此瀏覽器不支援 Web Bluetooth，請使用 Bluefy 或 Android Chrome。');
         return;
       }
 
       setStatus('掃描裝置中…');
-      device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
-      device.addEventListener('gattserverdisconnected', onDisconnected);
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'doi' }],
+        optionalServices: [SERVICE_UUID]
+      });
 
       log(`已選取裝置：${device.name || '(未命名)'}\nID: ${device.id}`);
       setStatus('連線中…');
 
+      device.addEventListener('gattserverdisconnected', onDisconnected);
       server = await device.gatt.connect();
-      setStatus('✅ 已連線', 'connected');
-      log('✅ 已成功建立 GATT 連線。');
 
+      const svc = await server.getPrimaryService(SERVICE_UUID);
+      writerChar = await svc.getCharacteristic(CHAR_UUID);
+      const p = writerChar.properties;
+      log(`✅ 找到特徵 ${CHAR_UUID} [${p.write?'write':''}${p.write&&p.writeWithoutResponse?'/':''}${p.writeWithoutResponse?'writeWithoutResponse':''}]`);
+
+      setStatus('✅ 已連線', 'connected');
       $('#btnConnect').disabled = true;
       $('#btnDisconnect').disabled = false;
+
+      // === 自動傳送 "up" ===
+      await send('up');
+      log('🚀 已自動送出 "up" 給 FFF3');
+
     } catch (err) {
-      log('❌ 連線失敗：' + (err?.message || err));
+      log('❌ ' + (err?.message || err));
       setStatus('連線失敗', 'disconnected');
+      await disconnect();
+    }
+  }
+
+  async function send(text) {
+    if (!writerChar) { log('⚠️ 尚未取得特徵'); return; }
+    const data = new TextEncoder().encode(String(text) + '\n');
+    try {
+      if (writerChar.properties.writeWithoutResponse)
+        await writerChar.writeValueWithoutResponse(data);
+      else
+        await writerChar.writeValue(data);
+    } catch (e) {
+      log('❌ 傳送失敗：' + (e?.message || e));
     }
   }
 
   async function disconnect() {
-    try {
-      if (device?.gatt?.connected) device.gatt.disconnect();
-    } catch (_) {}
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
     onDisconnected();
   }
 
@@ -132,10 +117,9 @@
     log('🔌 BLE 已斷線');
     $('#btnConnect').disabled = false;
     $('#btnDisconnect').disabled = true;
-    device = server = null;
+    device = server = writerChar = null;
   }
 
-  // 綁定按鈕
   $('#btnConnect').addEventListener('click', connect);
   $('#btnDisconnect').addEventListener('click', disconnect);
 })();
