@@ -3,108 +3,80 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Mango BLE Pad — FFF3 Only</title>
+<title>最簡版 BLE 連線測試</title>
 <style>
   :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
-  body { margin:0; background:#0f172a; color:#e2e8f0; display:grid; place-items:center; min-height:100vh; }
-  .app { width:min(560px,92vw); padding:20px; border-radius:16px; background:#111827; box-shadow:0 10px 30px rgba(0,0,0,.35); }
-  h1{ margin:0 0 8px; font-size:22px;}
-  .row{ display:flex; gap:12px; flex-wrap:wrap; }
-  button{ flex:1; padding:14px 16px; border-radius:12px; border:0; cursor:pointer; font-size:16px; color:#0f172a;}
-  .primary{ background:#60a5fa;} .ghost{background:#cbd5e1;} .danger{background:#fca5a5;} .blue{background:#93c5fd;}
-  .pad{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:16px;}
-  .pad button{ background:#e5e7eb; }
-  .muted{ color:#94a3b8; font-size:12px; margin-top:8px;}
-  .log{ margin-top:16px; height:200px; overflow:auto; background:#0b1220; border-radius:10px; padding:10px;
-        font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
-  .custom{ display:flex; gap:8px; margin-top:12px;}
-  .custom input{ flex:1; padding:10px 12px; border-radius:10px; border:1px solid #334155; background:#0b1220; color:#e2e8f0; }
+  body { margin: 0; background: #0f172a; color: #e2e8f0; display: grid; place-items: center; min-height: 100vh; }
+  .app { width: min(520px, 92vw); padding: 20px; border-radius: 16px; background: #111827; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  .row { display: flex; gap: 12px; }
+  button { flex: 1; padding: 12px 14px; border-radius: 12px; border: 0; cursor: pointer; font-size: 16px; color: #0f172a; }
+  .primary { background: #60a5fa; } .ghost { background: #cbd5e1; }
+  .muted { color:#94a3b8; font-size:12px; margin-top:8px; }
+  .log { margin-top: 12px; height: 240px; overflow:auto; background:#0b1220; border-radius:10px; padding:10px;
+         font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+  .opt { margin-top:10px; display:flex; gap:8px; }
+  .opt input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid #334155; background:#0b1220; color:#e2e8f0; }
 </style>
 </head>
 <body>
   <div class="app">
-    <h1>🍋 Mango BLE Pad — FFF3 單通道</h1>
+    <h1>🔗 最簡版 BLE 連線</h1>
 
     <div class="row">
       <button id="btnConnect" class="primary">連線</button>
-      <button id="btnDisconnect" class="ghost" disabled>中斷</button>
-      <button id="btnStop" class="danger">STOP</button>
-      <button id="btnBlue" class="blue">BLUE</button>
+      <button id="btnDisconnect" class="ghost" disabled>斷線</button>
     </div>
 
-    <div class="pad">
-      <div></div>
-      <button data-cmd="UP">UP ⬆</button>
-      <div></div>
-      <button data-cmd="LEFT">LEFT ⬅</button>
-      <div></div>
-      <button data-cmd="RIGHT">RIGHT ➡</button>
-      <div></div>
-      <button data-cmd="DOWN">DOWN ⬇</button>
-      <div></div>
+    <!-- 可選：指定一個 Service UUID 以便列出該服務的特徵（不填也可連線） -->
+    <div class="opt">
+      <input id="svc" placeholder="可選：輸入 Service UUID（例：0000fff0-0000-1000-8000-00805f9b34fb）">
+      <button id="btnList" class="ghost" title="如上方有填 Service，點此列出特徵">列出特徵</button>
     </div>
 
-    <div class="custom">
-      <input id="txt" placeholder="自訂指令（例如：V60、SRV10002000…）" />
-      <button id="btnSend" class="primary" style="flex:0 0 auto;">送出</button>
-    </div>
-
-    <div id="status" class="muted" style="margin-top:10px;">請用 Bluefy / WebBLE 開啟本頁，按『連線』後操作。此版本僅使用 FFF3（Write w/o Response）。</div>
+    <div id="status" class="muted" style="margin-top:8px;">請以 Bluefy(WebBLE) 或 Android Chrome 在 HTTPS 網站開啟，按『連線』。</div>
     <div id="log" class="log"></div>
   </div>
 
 <script>
 (() => {
-  // ====== 固定使用 Doiot-BLE 的 FFF0 / FFF3 ======
-  const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
-  const CHR_WRITE_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';  // 單通道：只寫 FFF3
-
-  let device = null, server = null, writerChar = null;
+  let device = null, server = null;
 
   const $ = s => document.querySelector(s);
+  const log = m => { const el = $('#log'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
   const setStatus = s => $('#status').innerText = s;
-  const log = (m) => { const el = $('#log'); el.innerText += m + '\n'; el.scrollTop = el.scrollHeight; };
+  const supported = ('bluetooth' in navigator);
 
-  function notSupported() {
-    return !('bluetooth' in navigator);
+  function propsToList(p){
+    return ['read','write','writeWithoutResponse','notify','indicate']
+      .filter(k => p[k]).join(',');
   }
 
   async function connect() {
     try {
-      if (notSupported()) {
-        alert('此瀏覽器不支援 Web Bluetooth。\n請在 iPhone 上使用 Bluefy / WebBLE 開啟本頁，或在 Android 上用 Chrome。');
+      if (!supported) {
+        alert('此瀏覽器不支援 Web Bluetooth。\n請於 iPhone 使用 Bluefy / WebBLE，或 Android 使用 Chrome。');
         return;
       }
 
+      // 基本連線：讓使用者挑任何裝置；若想縮小清單，可改 filters（如 namePrefix）
+      const svc = $('#svc').value.trim();
+      const options = svc
+        ? { acceptAllDevices: true, optionalServices: [svc] }
+        : { acceptAllDevices: true };
+
       setStatus('掃描裝置中…');
-      const options = {
-        acceptAllDevices: true,
-        optionalServices: [SERVICE_UUID]
-      };
       device = await navigator.bluetooth.requestDevice(options);
       device.addEventListener('gattserverdisconnected', onDisconnected);
-      log(`🔗 選取：${device.name || '(未命名)'} (${device.id})`);
-      setStatus(`連線中：${device.name || '(未命名)'}`);
+
+      log(`已選取裝置：${device.name || '(未命名)'}\nID: ${device.id}`);
+      setStatus('連線中…');
 
       server = await device.gatt.connect();
-      const svc = await server.getPrimaryService(SERVICE_UUID);
+      setStatus('✅ 已連線（僅建立連線，不讀寫資料）');
 
-      // 只取得 FFF3 作為寫入特徵
-      writerChar = await svc.getCharacteristic(CHR_WRITE_UUID);
-      const p = writerChar.properties;
-      if (!(p.write || p.writeWithoutResponse)) {
-        throw new Error('FFF3 特徵不可寫；請檢查模組韌體或改用 FFF1。');
-      }
-
-      setStatus('✅ 已連線（FFF0 / FFF3）');
-      log(`✅ Service: ${SERVICE_UUID}`);
-      log(`✍️  Write : ${CHR_WRITE_UUID} [${p.write?'write':''}${p.write&&p.writeWithoutResponse?'/':''}${p.writeWithoutResponse?'writeWithoutResponse':''}]`);
-
-      // UI
       $('#btnConnect').disabled = true;
-      $('#btnDisconnect').disabled = true; // 多數瀏覽器不支援主動斷線後記憶；仍提供按鈕
       $('#btnDisconnect').disabled = false;
-
     } catch (err) {
       log('❌ ' + (err?.message || err));
       setStatus('連線失敗');
@@ -112,52 +84,43 @@
     }
   }
 
+  async function listCharacteristics() {
+    try {
+      if (!server) { log('⚠️ 尚未連線'); return; }
+      const svcUUID = $('#svc').value.trim();
+      if (!svcUUID) { log('ℹ️ 要列出特徵，請先在上方輸入 Service UUID'); return; }
+
+      const svc = await server.getPrimaryService(svcUUID);
+      const chars = await svc.getCharacteristics();
+      log(`📡 服務 ${svcUUID} 共有特徵 ${chars.length} 個：`);
+      for (const c of chars) {
+        log(`  • ${c.uuid}  [${propsToList(c.properties) || '無屬性'}]`);
+      }
+    } catch (e) {
+      log('❌ 列出特徵失敗：' + (e?.message || e));
+    }
+  }
+
   function onDisconnected() {
     setStatus('🔌 已斷線');
     $('#btnConnect').disabled = false;
     $('#btnDisconnect').disabled = true;
-    device = server = writerChar = null;
+    device = server = null;
   }
 
   async function disconnect() {
-    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch(_) {}
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
     onDisconnected();
   }
 
-  async function send(text) {
-    if (!writerChar) { log('⚠️ 尚未連線'); return; }
-    // 傳純文字 + 換行（Pico 端可用 .strip() 去尾）
-    const data = new TextEncoder().encode(String(text) + '\n');
-    try {
-      if (writerChar.properties.writeWithoutResponse) {
-        await writerChar.writeValueWithoutResponse(data);
-      } else {
-        await writerChar.writeValue(data);
-      }
-      log(`→ ${text}`);
-    } catch (e) {
-      log('❌ 傳送失敗：' + (e?.message || e));
-    }
-  }
-
-  // 綁 UI
+  // 綁定
   $('#btnConnect').addEventListener('click', connect);
   $('#btnDisconnect').addEventListener('click', disconnect);
-  $('#btnBlue').addEventListener('click', () => send('BLUE'));
-  $('#btnStop').addEventListener('click', () => send('STOP'));
-  document.querySelectorAll('[data-cmd]').forEach(b => {
-    b.addEventListener('click', () => send(b.dataset.cmd));
-  });
-  $('#btnSend').addEventListener('click', () => {
-    const v = $('#txt').value.trim();
-    if (v) send(v);
-  });
-  $('#txt').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') $('#btnSend').click();
-  });
+  $('#btnList').addEventListener('click', listCharacteristics);
 
-  if (notSupported()) {
-    setStatus('此瀏覽器不支援 Web Bluetooth，請用 Bluefy / WebBLE（iOS）或 Chrome（Android）。');
+  // 初始提示
+  if (!supported) {
+    setStatus('此瀏覽器不支援 Web Bluetooth；請使用 Bluefy / WebBLE（iOS）或 Chrome（Android）。');
   }
 })();
 </script>
