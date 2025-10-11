@@ -3,66 +3,147 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Mango BLE — 四向控制 (FFF3)</title>
+<title>Mango BLE Controller (FFF3)</title>
 <style>
-  :root{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial}
-  body{margin:0;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh}
-  .app{width:min(520px,92vw);padding:20px;border-radius:16px;background:#111827;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-  h1{margin:0 0 10px;font-size:22px}
-  .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
-  button{padding:12px 14px;border-radius:12px;border:0;cursor:pointer;font-size:16px;color:#0f172a}
-  .primary{background:#60a5fa}.ghost{background:#cbd5e1}.danger{background:#fca5a5}
-  .pad{display:grid;grid-template-columns:96px 96px 96px;gap:12px;justify-content:center;margin-top:12px}
-  .pad > div{height:0}
-  .pad button{background:#e5e7eb}
-  .muted{color:#94a3b8;font-size:12px;margin-top:8px}
-  .log{margin-top:10px;height:180px;overflow:auto;background:#0b1220;border-radius:10px;padding:10px;
-       font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap}
-  .opts{display:flex;gap:10px;align-items:center;margin-top:8px;font-size:12px}
-  label{display:flex;gap:6px;align-items:center}
-  input[type="number"]{width:70px;padding:6px 8px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0}
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --accent: #60a5fa;
+    --danger: #ef4444;
+    --ok: #22c55e;
+    --blue: #3b82f6;
+    --text: #e2e8f0;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+  }
+
+  .app {
+    width: min(480px, 92vw);
+    padding: 24px;
+    background: var(--panel);
+    border-radius: 20px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    text-align: center;
+  }
+
+  h1 {
+    margin: 0 0 14px;
+    font-size: 22px;
+  }
+
+  .row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+
+  .btn {
+    padding: 12px 18px;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+    color: #fff;
+  }
+  .btn:active { transform: scale(0.95); }
+
+  .btn.connect { background: var(--accent); }
+  .btn.disconnect { background: #94a3b8; color: #0f172a; }
+  .btn.stop { background: var(--danger); }
+  .btn.blue { background: var(--blue); }
+
+  .pad {
+    display: grid;
+    grid-template-columns: 100px 100px 100px;
+    gap: 16px;
+    justify-content: center;
+    margin: 20px auto;
+  }
+
+  .pad button {
+    background: #e2e8f0;
+    color: #0f172a;
+    font-weight: 600;
+    border: none;
+    border-radius: 50%;
+    height: 80px;
+    width: 80px;
+    font-size: 18px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .pad button:hover {
+    background: var(--accent);
+    color: white;
+    box-shadow: 0 4px 14px rgba(96,165,250,0.5);
+  }
+
+  .muted {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-top: 8px;
+  }
+
+  .log {
+    margin-top: 12px;
+    height: 150px;
+    overflow: auto;
+    background: #0b1220;
+    border-radius: 10px;
+    padding: 10px;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    text-align: left;
+  }
 </style>
 </head>
 <body>
 <div class="app">
-  <h1>🍋 Mango BLE — 四向控制 (FFF3)</h1>
-
+  <h1>🍋 Mango BLE 控制器 (FFF3)</h1>
   <div class="row">
-    <button id="btnConnect" class="primary">連線</button>
-    <button id="btnDisconnect" class="ghost" disabled>斷線</button>
+    <button id="btnConnect" class="btn connect">連線</button>
+    <button id="btnDisconnect" class="btn disconnect" disabled>斷線</button>
   </div>
 
-  <!-- 十字鍵佈局 -->
   <div class="pad">
     <div></div>
-    <button data-cmd="UP">UP ⬆</button>
+    <button data-cmd="UP">⬆</button>
     <div></div>
 
-    <button data-cmd="LEFT">LEFT ⬅</button>
-    <div></div>
-    <button data-cmd="RIGHT">RIGHT ➡</button>
+    <button data-cmd="LEFT">⬅</button>
+    <button data-cmd="STOP" class="stop">■</button>
+    <button data-cmd="RIGHT">➡</button>
 
     <div></div>
-    <button data-cmd="DOWN">DOWN ⬇</button>
+    <button data-cmd="DOWN">⬇</button>
     <div></div>
   </div>
 
-  <!-- 保持連線（心跳） -->
-  <div class="opts">
-    <label><input type="checkbox" id="keep" checked> 保持連線（每 <input type="number" id="intv" min="5" value="20"> 秒送一次 PING）</label>
+  <div class="row">
+    <button data-cmd="BLUE" class="btn blue">BLUE</button>
   </div>
 
-  <div id="status" class="muted">請用 Bluefy / WebBLE（iOS）或 Chrome（Android）開啟本頁。固定使用 FFF0/FFF3。</div>
+  <div id="status" class="muted">尚未連線</div>
   <div id="log" class="log"></div>
 </div>
 
 <script>
 (() => {
-  // 固定 Doiot-BLE 的 FFF0 / FFF3
   const SVC  = '0000fff0-0000-1000-8000-00805f9b34fb';
   const FFF3 = '0000fff3-0000-1000-8000-00805f9b34fb';
-
-  let device=null, server=null, writer=null, hbTimer=null;
+  let device=null, server=null, writer=null;
 
   const $ = s => document.querySelector(s);
   const log = m => { const el=$('#log'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
@@ -71,81 +152,58 @@
 
   async function connect(){
     try{
-      if (!supported){ alert('此瀏覽器不支援 Web Bluetooth。'); return; }
-      setStatus('掃描中…（鎖定 FFF0）');
-      // 用 filters 鎖服務＋名稱前綴（可視需要調整）
-      const options = { filters:[ {services:[SVC]}, {namePrefix:'doi'} ] };
+      if(!supported){ alert('此瀏覽器不支援 Web Bluetooth。'); return; }
+      setStatus('掃描中…');
+      const options = { filters:[{services:[SVC]}, {namePrefix:'doi'}] };
       device = await navigator.bluetooth.requestDevice(options);
       device.addEventListener('gattserverdisconnected', onDisc);
-      log(`已選取裝置：${device.name||'(未命名)'}\nID: ${device.id}`);
-
-      setStatus('連線中…');
       server = await device.gatt.connect();
-
       const svc = await server.getPrimaryService(SVC);
       writer = await svc.getCharacteristic(FFF3);
-      if (!writer) throw new Error('找不到 FFF3 特徵');
+      if(!writer) throw new Error('找不到 FFF3 特徵');
 
-      setStatus('✅ 已連線（FFF3 可寫）');
+      setStatus('✅ 已連線');
       log(`✍️ Writer: ${writer.uuid}`);
       $('#btnConnect').disabled = true;
       $('#btnDisconnect').disabled = false;
-
-      startHeartbeat();
     }catch(e){
-      log('❌ ' + (e?.message || e));
+      log('❌ '+(e?.message||e));
       setStatus('連線失敗');
       await disconnect();
     }
   }
 
   function onDisc(){
-    stopHeartbeat();
     setStatus('🔌 已斷線');
     $('#btnConnect').disabled = false;
     $('#btnDisconnect').disabled = true;
-    device = server = writer = null;
+    device=server=writer=null;
   }
 
   async function disconnect(){
-    try{ if (device?.gatt?.connected) device.gatt.disconnect(); }catch(_){}
+    try{ if(device?.gatt?.connected) device.gatt.disconnect(); }catch(_){}
     onDisc();
   }
 
-  // 嘗試兩種寫法：先 w/o response，失敗再一般 write
-  async function writeText(t){
-    if (!writer){ log('⚠️ 尚未連線'); return; }
-    const data = new TextEncoder().encode(String(t));
-    let ok=false, e1=null, e2=null;
-    try{ await writer.writeValueWithoutResponse(data); ok=true; }catch(e){ e1=e; }
-    if (!ok){ try{ await writer.writeValue(data); ok=true; }catch(e){ e2=e; } }
-    if (!ok) throw new Error('寫入失敗：' + (e1?.message||e1||'') + (e2?(' / '+(e2?.message||e2)):''));
-    log(`→ ${t}`);
+  async function send(text){
+    if(!writer){ log('⚠️ 尚未連線'); return; }
+    const data = new TextEncoder().encode(text);
+    try{
+      await writer.writeValueWithoutResponse(data);
+      log(`→ ${text}`);
+    }catch(e){
+      log('❌ 傳送失敗：'+(e?.message||e));
+    }
   }
 
-  function startHeartbeat(){
-    stopHeartbeat();
-    if (!$('#keep').checked) return;
-    const sec = Math.max(5, Number($('#intv').value) || 20);
-    hbTimer = setInterval(() => {
-      if (writer) writeText('PING').catch(e => log('⚠️ 心跳失敗：' + (e?.message||e)));
-    }, sec*1000);
-  }
-  function stopHeartbeat(){
-    if (hbTimer){ clearInterval(hbTimer); hbTimer=null; }
-  }
-
-  // 綁定
   $('#btnConnect').addEventListener('click', connect);
   $('#btnDisconnect').addEventListener('click', disconnect);
   document.querySelectorAll('[data-cmd]').forEach(b=>{
-    b.addEventListener('click', ()=> writeText(b.dataset.cmd));
+    b.addEventListener('click', ()=>send(b.dataset.cmd));
   });
-  $('#keep').addEventListener('change', startHeartbeat);
-  $('#intv').addEventListener('change', startHeartbeat);
 
-  if (!supported){
-    setStatus('此瀏覽器不支援 Web Bluetooth；請用 Bluefy / WebBLE（iOS）或 Chrome（Android）。');
+  if(!supported){
+    setStatus('請使用 Bluefy 或 WebBLE 開啟此頁（Safari 不支援 Web Bluetooth）');
   }
 })();
 </script>
