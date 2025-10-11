@@ -3,125 +3,141 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>最簡版 BLE 連線測試</title>
+<title>BLE 最簡連線測試（含紅色斷線提示）</title>
 <style>
-  :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
-  body { margin: 0; background: #0f172a; color: #e2e8f0; display: grid; place-items: center; min-height: 100vh; }
-  .app { width: min(520px, 92vw); padding: 20px; border-radius: 16px; background: #111827; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  :root {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+  }
+  body {
+    margin: 0;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+  }
+  .app {
+    width: min(520px, 92vw);
+    padding: 20px;
+    border-radius: 16px;
+    background: #111827;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
   h1 { margin: 0 0 8px; font-size: 22px; }
   .row { display: flex; gap: 12px; }
-  button { flex: 1; padding: 12px 14px; border-radius: 12px; border: 0; cursor: pointer; font-size: 16px; color: #0f172a; }
-  .primary { background: #60a5fa; } .ghost { background: #cbd5e1; }
-  .muted { color:#94a3b8; font-size:12px; margin-top:8px; }
-  .log { margin-top: 12px; height: 240px; overflow:auto; background:#0b1220; border-radius:10px; padding:10px;
-         font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
-  .opt { margin-top:10px; display:flex; gap:8px; }
-  .opt input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid #334155; background:#0b1220; color:#e2e8f0; }
+  button {
+    flex: 1;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 0;
+    cursor: pointer;
+    font-size: 16px;
+    color: #0f172a;
+  }
+  .primary { background: #60a5fa; }
+  .ghost { background: #cbd5e1; }
+
+  .status {
+    color: #94a3b8;
+    font-size: 14px;
+    text-align: center;
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    transition: background-color 0.3s, color 0.3s;
+  }
+  .status.connected {
+    background-color: #166534;
+    color: #dcfce7;
+  }
+  .status.disconnected {
+    background-color: #b91c1c;
+    color: #fff;
+  }
+
+  .log {
+    margin-top: 12px;
+    height: 200px;
+    overflow:auto;
+    background:#0b1220;
+    border-radius:10px;
+    padding:10px;
+    font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+  }
 </style>
 </head>
 <body>
   <div class="app">
-    <h1>🔗 最簡版 BLE 連線</h1>
-
+    <h1>🔗 BLE 最簡版連線測試</h1>
     <div class="row">
       <button id="btnConnect" class="primary">連線</button>
       <button id="btnDisconnect" class="ghost" disabled>斷線</button>
     </div>
 
-    <!-- 可選：指定一個 Service UUID 以便列出該服務的特徵（不填也可連線） -->
-    <div class="opt">
-      <input id="svc" placeholder="可選：輸入 Service UUID（例：0000fff0-0000-1000-8000-00805f9b34fb）">
-      <button id="btnList" class="ghost" title="如上方有填 Service，點此列出特徵">列出特徵</button>
-    </div>
-
-    <div id="status" class="muted" style="margin-top:8px;">請以 Bluefy(WebBLE) 或 Android Chrome 在 HTTPS 網站開啟，按『連線』。</div>
+    <div id="status" class="status">尚未連線</div>
     <div id="log" class="log"></div>
   </div>
 
 <script>
 (() => {
   let device = null, server = null;
-
   const $ = s => document.querySelector(s);
-  const log = m => { const el = $('#log'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
-  const setStatus = s => $('#status').innerText = s;
-  const supported = ('bluetooth' in navigator);
-
-  function propsToList(p){
-    return ['read','write','writeWithoutResponse','notify','indicate']
-      .filter(k => p[k]).join(',');
-  }
+  const log = m => {
+    const el = $('#log');
+    el.textContent += m + '\n';
+    el.scrollTop = el.scrollHeight;
+  };
+  const setStatus = (text, state = '') => {
+    const el = $('#status');
+    el.innerText = text;
+    el.className = 'status ' + state;
+  };
 
   async function connect() {
     try {
-      if (!supported) {
-        alert('此瀏覽器不支援 Web Bluetooth。\n請於 iPhone 使用 Bluefy / WebBLE，或 Android 使用 Chrome。');
+      if (!('bluetooth' in navigator)) {
+        alert('此瀏覽器不支援 Web Bluetooth。請用 Bluefy 或 Android Chrome 開啟。');
         return;
       }
 
-      // 基本連線：讓使用者挑任何裝置；若想縮小清單，可改 filters（如 namePrefix）
-      const svc = $('#svc').value.trim();
-      const options = svc
-        ? { acceptAllDevices: true, optionalServices: [svc] }
-        : { acceptAllDevices: true };
-
       setStatus('掃描裝置中…');
-      device = await navigator.bluetooth.requestDevice(options);
+      device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
       device.addEventListener('gattserverdisconnected', onDisconnected);
 
       log(`已選取裝置：${device.name || '(未命名)'}\nID: ${device.id}`);
       setStatus('連線中…');
 
       server = await device.gatt.connect();
-      setStatus('✅ 已連線（僅建立連線，不讀寫資料）');
+      setStatus('✅ 已連線', 'connected');
+      log('✅ 已成功建立 GATT 連線。');
 
       $('#btnConnect').disabled = true;
       $('#btnDisconnect').disabled = false;
     } catch (err) {
-      log('❌ ' + (err?.message || err));
-      setStatus('連線失敗');
-      await disconnect();
+      log('❌ 連線失敗：' + (err?.message || err));
+      setStatus('連線失敗', 'disconnected');
     }
   }
 
-  async function listCharacteristics() {
+  async function disconnect() {
     try {
-      if (!server) { log('⚠️ 尚未連線'); return; }
-      const svcUUID = $('#svc').value.trim();
-      if (!svcUUID) { log('ℹ️ 要列出特徵，請先在上方輸入 Service UUID'); return; }
-
-      const svc = await server.getPrimaryService(svcUUID);
-      const chars = await svc.getCharacteristics();
-      log(`📡 服務 ${svcUUID} 共有特徵 ${chars.length} 個：`);
-      for (const c of chars) {
-        log(`  • ${c.uuid}  [${propsToList(c.properties) || '無屬性'}]`);
-      }
-    } catch (e) {
-      log('❌ 列出特徵失敗：' + (e?.message || e));
-    }
+      if (device?.gatt?.connected) device.gatt.disconnect();
+    } catch (_) {}
+    onDisconnected();
   }
 
   function onDisconnected() {
-    setStatus('🔌 已斷線');
+    setStatus('🔌 已斷線', 'disconnected');
+    log('🔌 BLE 已斷線');
     $('#btnConnect').disabled = false;
     $('#btnDisconnect').disabled = true;
     device = server = null;
   }
 
-  async function disconnect() {
-    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
-    onDisconnected();
-  }
-
-  // 綁定
+  // 綁定按鈕
   $('#btnConnect').addEventListener('click', connect);
   $('#btnDisconnect').addEventListener('click', disconnect);
-  $('#btnList').addEventListener('click', listCharacteristics);
-
-  // 初始提示
-  if (!supported) {
-    setStatus('此瀏覽器不支援 Web Bluetooth；請使用 Bluefy / WebBLE（iOS）或 Chrome（Android）。');
-  }
 })();
 </script>
 </body>
